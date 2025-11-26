@@ -1,0 +1,399 @@
+%\input{sty/00-preamble.sty}%
+\documentclass[10pt]{article}
+\usepackage[dvipdfmx]{graphicx}
+\usepackage{setspace}
+ \usepackage{color}
+ \usepackage{longtable}
+\usepackage{lineno}
+\usepackage{amsmath}
+\usepackage{ascmac}
+%\usepackage{proysoc}
+\usepackage{listings} %日本語のコメントアウトをする場合jvlisting（もしくはjlisting）が必要
+%ここからソースコードの表示に関する設定
+\lstset{
+  basicstyle={\ttfamily},
+  identifierstyle={\small},
+  commentstyle={\smallitshape},
+  keywordstyle={\small\bfseries},
+  ndkeywordstyle={\small},
+  stringstyle={\small\ttfamily},
+  frame={tb},
+  breaklines=true,
+  columns=[l]{fullflexible},
+  numbers=left,
+  xrightmargin=0zw,
+  xleftmargin=3zw,
+  numberstyle={\scriptsize},
+  stepnumber=1,
+  numbersep=1zw,
+  lineskip=-0.5ex
+}
+%ここまでソースコードの表示に関する設定
+
+
+\textwidth = 5.5 in
+\textheight = 8 in
+\oddsidemargin = 0.5 in
+\evensidemargin = 0.5 in
+%\topmargin = 1 in
+%\headheight = 0.0 in
+%\headsep = 0.0 in
+\parskip = 0.1 in
+
+\newcommand{\eHC}{\log \hat{\mathrm{HC5}}}
+\newcommand{\HC}{\log \mathrm{HC5}}
+\newcommand{\PNEC}{\log \mathrm{PNEC}}
+
+\setstretch{1.2}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\linenumbers
+
+\title{Additional notes on "The value of 	ing new toxicity data to species sensitivity distributions in ecological risk assessment"}
+\author{Masashi Kamo}
+\date{ver. \today}
+
+\renewcommand{\lstlistingname}{Implimentation}
+
+\begin{document}
+
+\maketitle
+
+\setstretch{1.5}
+
+
+\section{Change in SD ratio}
+Equation 5 in the main text, which describes the SD ration, is
+\begin{eqnarray}
+\nonumber
+\frac{s_{n+1}}{s_n} = \sqrt{\frac{v_{n+1}}{v_n}} = \sqrt{\frac{n-1}{n}+\frac{X^2}{n}} \equiv S(X),
+\end{eqnarray}
+where $X$ is a random variable having $t$-distribution. 
+
+The function $S(X)$ has a minimum at $X=0$ and the value is $S(0) = \sqrt{(n-1)/n}$. The minimum value of $s_{n+1}$ (a post-SD) is $s_{n+1} = s_n \sqrt{(n-1)/n}$ (post-SD will never bee less than $s_n \sqrt{(n-1)/n}$).
+
+If we want to know the probability that $s_{n+1} \le v s_n$, we first need to find the value of $X$ satisfying $S(X) = v$. There are two solutions.
+\begin{eqnarray}
+\nonumber
+x_l &=& -\sqrt{1+ n(v^2-1)}, \\
+\nonumber
+x_h &=& \sqrt{1+ n(v^2-1)}.
+\end{eqnarray}
+Note there are no solutions when $1+ n(v^2-1)<0$, so the minimum $v$ is $\sqrt{1-1/n}$.
+
+The probability that $s_{n+1} \le v s_n$ is given by integrating the $t$ distribution (with $n-1$ degree of freedom), from $x_1$ to $x_2$. 
+
+\begin{lstlisting}[caption=Probability that $s_{n+1} < s_n$, label=probFinder]
+n  <- 5 # sample size
+df <- n-1 # degree of freedom
+v  <- 1 # we want to know the probability for s_(n+1) < v * s_n 
+sqrt(1-1/n) # if no solutions, the probability is zero
+xl <- -sqrt(1+n*(v*v-1)) # left side value of the integration
+xh <- -xl # right side value
+pt(xh,df)-pt(xl,df) # probability that s_(n+1) < v * s_n 
+\end{lstlisting}
+
+\section{PDF and CDF}
+By repeating the Implementation 1 for various $v$, we have a CDF. 
+
+\begin{lstlisting}[caption=CDF that $s_{n+1} > v s_n$,  label=densityFunctions]
+n  <- 10 # sample size
+df <- n-1 # degree of freedom
+delta <- 0.01 # small value
+myCDF <- c()
+mySx <- c()
+x <- 0
+minSx <- sqrt(n-1+ x*x)/sqrt(n)
+for(i in 1:1000){
+	#value of sn_{n+1}/s_n at X = x
+	Sx <- sqrt(n-1+ x*x)/sqrt(n) # Sx = v
+	p <- 2 * (pt(x, df) - 0.5) #integrating t-distribution from 0 to x, and double it
+	myCDF <- append(myCDF,  p)
+	mySx <- append(mySx, Sx)
+	x <- x+delta  #increment of X value
+}
+plot(mySx, myCDF, type='l', xlim = c(minSx-0.1, 1.5), ylim = c(0,1), xlab = "Sx", ylab = "CDF")
+\end{lstlisting}
+
+A PDF is generated from CDF by a numerical differentiation. 
+\begin{lstlisting}[caption=PDF that $s_{n+1} > v s_n$, label=fuga2]
+leng <- length(myCDF)
+myPDF <- c()
+mySx2 <- c()
+for(i in 1:leng-1){
+	mySx2 <- append(mySx2, mySx[i])
+	myPDF <- append(myPDF, (myCDF[i+1]-myCDF[i])/(mySx[i+1]-mySx[i]))
+}
+plot(mySx2, myPDF, type='l', xlim = c(minSx-0.2, 1.5), ylim = c(0, 20), xlab = "Sx", ylab = "PDF")
+\end{lstlisting}
+
+If you want to compare the numerical analysis with Monte-Carlo simulations, run the next implementation. 
+\begin{lstlisting}[caption=Monte-Carlo simulation, label=fuga2]
+sdRatios <- c()
+pMean <- 3.141592 # population mean, any value you like, now it is pi
+pSD <- 2.71828  # population standard deviation, now it is Napier's constant
+for(i in 1:10000){
+	preData <- rnorm(n, pMean, pSD)
+	preMean <- mean(preData) #sample mean
+	preSD <- sd(preData) #sample sd
+	postData <- append(preData, rnorm(1, pMean, pSD)) # add one sample
+	postMean <- mean(postData) #sample mean after addition of 1 data
+	postSD <- sd(postData) #sample sd after addition of 1 data
+	sdRatio <- postSD/preSD
+	sdRatios <- append(sdRatios, sdRatio)
+}
+plot(mySx2, myPDF, type='l', xlim = c(minSx-0.2, 1.5), ylim = c(0, 20))
+hist(sdRatios, freq=FALSE, breaks = 100, add=T) 
+\end{lstlisting}
+
+
+\newpage
+\section{$\Delta \log\mathrm{HC}5$}
+The change of HC5 ($\Delta \log\mathrm{HC}5$) is given by an equation:
+\begin{eqnarray}
+\nonumber
+\Delta \log\mathrm{HC5}_n = s_n\left( \frac{1}{\sqrt{n(n+1)}}X  + \left(S(X)-1 \right)K_{0.05} \right),
+\end{eqnarray}
+$\Delta \log\mathrm{HC}5$ has a maximum at 
+\begin{eqnarray}
+\nonumber
+X = \frac{\sqrt{n-1}}{\sqrt{K_{0.05}^2(n+1)-1}}
+\end{eqnarray}
+where $K_{0.05}$ is a 5\% point of the standard normal distribution. The maximum value of $\Delta \log\mathrm{HC5}$ is
+\begin{eqnarray}
+\nonumber
+\left( \frac{\sqrt{n-1}}{\sqrt{n(n+1)}\sqrt{K_{0.05}^2(n+1)-1}}+K_{0.05}\left[   \frac{K_{0.05}\sqrt{(n^2-1)}}{\sqrt{n(K_{0.05}^2(n+1)-1)}} -1        \right] \right)s_n,
+\end{eqnarray}
+and the $\Delta \log\mathrm{HC5}$ will never be higher than the value. 
+
+We want to know the probability that post-HC5 $>$ $v$ pre-HC5, or $\Delta\log\mathrm{HC5} > \log v$. If, for example, $n=10, s_n = 1$,  the maximum $\Delta\log\mathrm{HC5}$ is 0.1108 = log10(1.29077), and post-HC5 will never be 1.29$\times$ higher than pre-HC5. 
+
+The probability that we need to know the intersections of $z = \log v$ and $\Delta \log\mathrm{HC5}_n$, i.e., we need to solve
+\begin{eqnarray}
+\nonumber
+\Delta \log\mathrm{HC5}_n = s_n\left( \frac{1}{\sqrt{n(n+1)}}X  + \left(S(X)-1 \right)K_{0.05} \right) = z.
+\end{eqnarray}
+There are two solutions of X: 
+\begin{eqnarray*}
+x_l = \frac{A - \sqrt{B}}{C}, \\
+x_h = \frac{A + \sqrt{B}}{C}
+\end{eqnarray*}
+where
+\begin{eqnarray*}
+A &=& -\sqrt{n(1+n)} s_n (K_{0.05} s_n + z), \\
+B &=&  K_{0.05}^2(1+n)s_n^2\left[  (n-1+K_{0.05}^2(n+1))s_n^2 + 2 K_{0.05} n(1+n)s_n z + n(1+n)z^2              \right], \\
+C &=& (K_{0.05}^2(1+n)-1) s_n^2,
+\end{eqnarray*}
+and an integration of t-distribution from $x_l$ to $x_h$ gives the probability. 
+
+\begin{lstlisting}[caption=CDF of $\Delta\log\mathrm{HC5}/s_n$ (or that when $s_n$ is 1), label=fuga2]
+n <- 10  #sample size
+df <- n-1
+delta <- 0.01
+Kp <- qnorm(0.05, 0, 1) # 5\%ile point of the standard normal distribution
+Kp2 <- Kp*Kp # square of Kp
+#
+sn <- 1.5
+sn2 <- sn*sn
+#
+maxX <- sqrt(n-1)/sqrt(Kp2*(n+1)-1)  # X leading to max $\Delta\log\mathrm{HC5}/s_n$
+maxDHC5 <- (sqrt((n-1)/n/(1+n)/(Kp2*(1+n)-1))+Kp*(sqrt((Kp2*(n*n-1))/(n*(Kp2*(1+n)-1)))-1))*sn
+z <- maxDHC5
+myCDF <- c(0)
+dlogHC5 <- c(maxDHC5)
+for(i in 1:100){
+	z <- z-delta
+	z2 <- z*z
+	#determine integration range
+	A <- -sqrt(n*(1+n))*sn*(Kp*sn + z)
+	B <-Kp2*(1+n)*sn2* (  (n-1+Kp2*(n+1))*sn2 + 2*Kp*n*(1+n)*sn*z + n*(1+n)*z2    )
+	C <- (Kp2*(1+n)-1)*sn2
+	xl <- (A-sqrt(B))/C
+	xh <- (A+sqrt(B))/C
+	p <- pt(xh, df) - pt(xl, df)
+	myCDF <- append(myCDF, p)
+	dlogHC5 <- append(dlogHC5, z)
+}
+plot(dlogHC5, myCDF, type = 'l')
+\end{lstlisting}
+
+Exercise:
+\begin{itemize}
+\item Generate PDF
+\item Compare the curve with the results by Monte-Carlo simulations
+\end{itemize}
+
+\newpage
+\section{$\Delta$logAF}
+As in the main text, $\Delta$logAF is 
+\begin{eqnarray*}
+\Delta\log\mathrm{AF} = s_n\left( S(X)(K_{0.05}+k_{n+1})-(K_{0.05}+k_n) \right), 
+\end{eqnarray*}
+where
+\begin{eqnarray*}
+k_n &=& t_{0.95}(n-1, -\sqrt{n}K_{0.05})/\sqrt{n}, \\
+k_{n+1} &=& t_{0.95}(n, -\sqrt{n+1}K_{0.05})/\sqrt{n+1}
+\end{eqnarray*}
+$\Delta$logAF is a downward convex function and has minimum at $X=0$. Its value is 
+\begin{eqnarray*}
+s_n\left(-kn-K_{0.05}+(k_{n+1}+K_{0.05}) \sqrt{\frac{n-1}{n}} \right)
+\end{eqnarray*}
+
+The curve has intersections with $z=0$:
+\begin{eqnarray*}
+x_l &=& -\sqrt{1-n+\frac{n(k_n+K_{0.05}+z/s_n)^2}{(k_{n+1}+K_{0.05})^2}}, \\
+x_h &=& \sqrt{1-n+\frac{n(k_n+K_{0.05}+z/s_n)^2}{(k_{n+1}+K_{0.05})^2}}
+\end{eqnarray*}
+Integration of t-distribution from $x_l$ to $x_h$ gives the probability that post-AF is lower than pre-AF. 
+
+For example, when $n=5$ and $s_n=1$, values of $k$ are
+\begin{eqnarray*}
+k_5 &=& t_{0.95}(4, -\sqrt{5}K_{0.05})/\sqrt{5} = 4.203, \\
+k_6 &=& t_{0.95}(5, -\sqrt{6}K_{0.05})/\sqrt{6} = 3.708
+\end{eqnarray*}
+and
+\begin{eqnarray*}
+-x_l = x_h = 1.920.
+\end{eqnarray*}
+Integration of t-distribution from -1.290 to 1.290 gives the  probability that post-AF is lower than pre-AF and is  0.87277. The probability that post-AF is HIGHER than pre-AF is hence $1-0.87277 = 0.12723$. One in ten times a new sampling will result in greater uncertainty. This result shows that our intuition that increasing the sample size will reduce uncertainty is not necessarily correct.
+
+\begin{lstlisting}[caption=Probability that $\Delta\log\mathrm{AF}/s_n$ is positive, label=fuga2]
+n <- 5  #sample size
+df <- n-1
+Kp <- qnorm(0.05, 0, 1) # 5%ile point of the standard normal distribution
+sn <- 1
+z <- 0
+kn <- qt(df = n-1, ncp = -sqrt(n)*Kp, 0.95)/sqrt(n)
+knn <- qt(df = n, ncp = -sqrt(n+1)*Kp, 0.95)/sqrt(n+1)
+xh <- sqrt(1-n + n*(kn+Kp+z/sn)*(kn+Kp+z/sn)/(knn+Kp)/(knn+Kp))
+pl <- 2*(pt(xh,df)-0.5)
+ph <- 1- pl
+\end{lstlisting}
+
+Exercise:
+\begin{itemize}
+\item Make PDF and CDF of $\Delta\log\mathrm{HC5}/s_n$
+\item Find the probability that post-AF is twice (half) the pre-AF. See how it changes depending on $s_n$.
+\item Compare the results by Monte-Carlo simulations
+\end{itemize}
+
+\newpage
+\section{$\Delta$logPNEC}
+The change of PNEC is 
+\begin{eqnarray*}
+\Delta\log\mathrm{PNEC} = s_n\left(  \frac{x}{\sqrt{n(1+n)}} +k_n - k_{n+1} S(X) \right)
+\end{eqnarray*}
+This function is upwardly convex. It has maximum at 
+\begin{eqnarray*}
+x = \sqrt{\frac{n-1}{k_{n+1}^2(1+n)-1}}
+\end{eqnarray*}
+and its value is
+\begin{eqnarray*}
+s_n\left( k_n-k_{n+1}^2\sqrt{\frac{(n^2-1)}{n[k_{n+1}^2(1+n)-1]}} + \sqrt{\frac{n-1}{n(1+n)(k_{n+1}^2(1+n)-1)}}\right)
+\end{eqnarray*}
+
+Intersections between the curve and value of $z$ is a bit complicated and are
+\begin{eqnarray*}
+x_l &=& (A -\sqrt{B})/C, \\
+x_h &=& (A +\sqrt{B})/C
+\end{eqnarray*}
+where
+\begin{eqnarray*}
+A &=&  \sqrt{n(1+n)}(k_n s_n - z), \\
+B &=& k_{n+1}^2  (1 +   n) \left(\left[[n-1 + kn^2 n (1 + n) - k_{n+1}^2 (n^2-1 )\right] s_n^2 +n z (1+n)(z-2k_n s_n)\right) \\
+C &=& \left(k_{n+1}^2(1+n)-1\right)s_n
+\end{eqnarray*}
+
+To obtain the probability that post-PNEC is lower than pre-PNEC, we set $z = \log10(v) = 0$ and integrate t-distribution from $x_l$ to $x_h$. 
+
+\begin{lstlisting}[caption=Probability that $\Delta\log\mathrm{PNEC}/s_n$ is positive, label=fuga2]
+n <- 5
+df <- n-1
+Kp <- qnorm(0.05, 0, 1) 
+sn <- 1
+z <- 0
+kn <- qt(df = n-1, ncp = -sqrt(n)*Kp, 0.95)/sqrt(n)
+knn <- qt(df = n, ncp = -sqrt(n+1)*Kp, 0.95)/sqrt(n+1)
+A  <- sqrt(n*(1 + n))*(kn*sn - z)
+B <- sqrt(knn*knn*(1 +  n)*((n-1 + kn*kn*n*(1 + n) - knn*knn*(n*n-1))*sn*sn - 2*kn*n*(1 + n)*sn*z + n*(1 + n)*z*z))
+C <- (-1 + knn*knn*(1 + n))*sn
+xl <- (A - B)/C
+xh <- (A + B)/C
+p <- pt(xh, df) - pt(xl, df)
+\end{lstlisting}
+
+To know the magnitude of the change as a function of $z = \log10(v)$, we just change the values of $z$ and run the code. One thing we need to be careful is that $z$ may not have any intersections with the curve if $z$ is large (this happens when $z>0$). For a given value of $z$, the minimum $s_n$ is obtained by solving an equation:
+\begin{eqnarray*}
+s_n\left( k_n-k_{n+1}^2\sqrt{\frac{(n^2-1)}{n[k_{n+1}^2(1+n)-1]}} + \sqrt{\frac{n-1}{n(1+n)(k_{n+1}^2(1+n)-1)}}\right) = z.
+\end{eqnarray*}
+
+When, for example, $z = 1 = \log10(10)$, probability that post-PNEC $>$ 10 pre-PNEC can be computed by the code in Implementation 8. 
+
+\begin{lstlisting}[caption=Finding probabilities as a function of $s_n$, label=fuga2]
+n <- 5
+df <- n-1
+Kp <- qnorm(0.05, 0, 1)
+kn <- qt(df = n-1, ncp = -sqrt(n)*Kp, 0.95)/sqrt(n)
+knn <- qt(df = n, ncp = -sqrt(n+1)*Kp, 0.95)/sqrt(n+1)
+z <- log10(10) # = 1
+temp1 <- n*(knn*knn*(1+n) -1)
+temp2 <- kn-knn*knn*sqrt((n*n-1)/temp1) + sqrt((n-1)/((1+n)*temp1))
+minSn <- z/temp2
+
+delta <- 0.01
+p10 <- c(0)
+sn10 <- c(minSn)
+sn <- minSn + delta
+for(i in 1:1000){
+	if(sn > 2.0) break;
+	A  <- sqrt(n*(1 + n))*(kn*sn - z)
+	B <- sqrt(knn*knn*(1 +  n)*((n-1 + kn*kn*n*(1 + n) - knn*knn*(n*n-1))*sn*sn - 2*kn*n*(1 + n)*sn*z + n*(1 + n)*z*z))
+	C <- (-1 + knn*knn*(1 + n))*sn
+	xl <- (A - B)/C
+	xh <- (A + B)/C
+	p <- pt(xh, df) - pt(xl, df)
+	p10 <- append(p10, p)
+	sn10 <- append(sn10, sn)
+#
+	sn <- sn + delta
+}
+plot(sn10, p10,  type = 'l', col=2)
+\end{lstlisting}
+
+When $z < 0$ we do not have to care about the minimum $s_n$. 
+\begin{lstlisting}[caption=Finding probabilities as a function of $s_n$, label=fuga2]
+n <- 5
+df <- n-1
+Kp <- qnorm(0.05, 0, 1)
+kn <- qt(df = n-1, ncp = -sqrt(n)*Kp, 0.95)/sqrt(n)
+knn <- qt(df = n, ncp = -sqrt(n+1)*Kp, 0.95)/sqrt(n+1)
+z <- log10(0.01) # = -2
+delta <- 0.01
+p001<- c()
+minSn <- 0.01
+sn001 <- c()
+sn <- minSn
+for(i in 1:1000){
+	if(sn > 2.0) break;
+	A  <- sqrt(n*(1 + n))*(kn*sn - z)
+	B <- sqrt(knn*knn*(1 +  n)*((n-1 + kn*kn*n*(1 + n) - knn*knn*(n*n-1))*sn*sn - 2*kn*n*(1 + n)*sn*z + n*(1 + n)*z*z))
+	C <- (-1 + knn*knn*(1 + n))*sn
+	xl <- (A - B)/C
+	xh <- (A + B)/C
+	p <- pt(xh, df) - pt(xl, df)
+	p001 <- append(p001, p)
+	sn001 <- append(sn001, sn)
+	#
+	sn <- sn + delta
+}
+plot(sn10, p10,  type = 'l', col=2, xlim = c(0.01, 2), ylim = c(0,1), xlab = "sn", ylab = "Probability")
+par(new = T)
+plot(sn001, p001,  type = 'l', col=3, xlim = c(0.01, 2), ylim = c(0,1), xlab = "", ylab = "")
+\end{lstlisting}
+
+All results can be reproduced using the above codes.
+
+\end{document}
+
+
+
+
